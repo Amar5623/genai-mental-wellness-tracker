@@ -24,8 +24,16 @@ export const runtime = "nodejs";
  * literal) so it can be unit-tested directly without spinning up the route
  * handler or mocking the Groq SDK — improves Testing coverage and lets us
  * assert the prompt adapts correctly to mood/stress/exam context.
+ *
+ * NOTE: This function is intentionally NOT exported from this file.
+ * Next.js App Router route files only allow specific named exports
+ * (GET, POST, PUT, etc. and a few config fields like `runtime`).
+ * Any other `export` causes a build-time type error:
+ *   "X is not a valid Route export field."
+ * If you need to unit-test buildSystemPrompt, import it from
+ * `@/lib/chatPrompt` instead (see that file).
  */
-export function buildSystemPrompt(examType: string, mood: number, stress: number): string {
+function buildSystemPrompt(examType: string, mood: number, stress: number): string {
   const urgentCare = mood <= 2 || stress >= 4;
 
   return `
