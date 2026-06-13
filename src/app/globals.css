@@ -1,0 +1,118 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=DM+Serif+Display:ital@0;1&display=swap');
+
+:root {
+  --font-display: 'DM Serif Display', serif;
+  --font-body:    'Plus Jakarta Sans', sans-serif;
+
+  /* Brand palette */
+  --color-bg:       #0d1117;
+  --color-surface:  #161b22;
+  --color-surface2: #21262d;
+  --color-border:   #30363d;
+  --color-text:     #e6edf3;
+  --color-muted:    #8b949e;
+  --color-primary:  #3b64f6;
+  --color-calm:     #14b89a;
+  --color-warn:     #f97316;
+  --color-danger:   #f43f5e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+/* Focus visible */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Custom utilities */
+@layer utilities {
+  .glass {
+    background: rgba(22, 27, 34, 0.8);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--color-border);
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, #3b64f6, #14b89a);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .mood-glow-1 { box-shadow: 0 0 16px rgba(244, 63, 94, 0.3); }
+  .mood-glow-2 { box-shadow: 0 0 16px rgba(249, 115, 22, 0.3); }
+  .mood-glow-3 { box-shadow: 0 0 16px rgba(234, 179, 8, 0.3);  }
+  .mood-glow-4 { box-shadow: 0 0 16px rgba(34, 197, 94, 0.3);  }
+  .mood-glow-5 { box-shadow: 0 0 16px rgba(20, 184, 154, 0.3); }
+}
+
+/* Prose for AI responses */
+.prose-mindmate p { margin-bottom: 0.75rem; line-height: 1.7; }
+.prose-mindmate strong { color: #93b3fd; }
+
+/* Streaming cursor */
+.stream-cursor::after {
+  content: '▋';
+  display: inline-block;
+  animation: blink 0.8s step-end infinite;
+  color: var(--color-primary);
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* Skip to main content (accessibility) */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--color-primary);
+  color: white;
+  padding: 8px 16px;
+  z-index: 100;
+  border-radius: 0 0 4px 0;
+  transition: top 0.2s;
+}
+.skip-link:focus {
+  top: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
