@@ -11,7 +11,7 @@
 
 **An empathetic, always-available AI companion for students preparing for JEE, NEET, UPSC, CAT, GATE & CUET**
 
-[🚀 Live Demo](https://mindmate-wellness.vercel.app) · [📦 Repository](https://github.com/your-username/mindmate)
+[🚀 Live Demo](https://mindmate-jade.vercel.app/) · [📦 Repository](https://github.com/Amar5623/genai-mental-wellness-tracker)
 
 </div>
 
