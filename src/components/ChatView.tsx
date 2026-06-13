@@ -10,7 +10,8 @@ import {
 import type { UserProfile } from "@/lib/storage";
 import type { ChatMessage, ExamType, MoodLevel, StressLevel } from "@/types";
 import { MOOD_EMOJI } from "@/types";
-import { Send, Trash2, Bot, User, AlertTriangle } from "lucide-react";
+import BreathingExercise from "./BreathingExercise";
+import { Send, Trash2, Bot, User, AlertTriangle, Wind, X } from "lucide-react";
 
 interface Props {
   profile: UserProfile;
@@ -25,16 +26,25 @@ const STARTER_MESSAGES = [
 ];
 
 export default function ChatView({ profile }: Props) {
-  const [messages, setMessages]     = useState<ChatMessage[]>([]);
-  const [input, setInput]           = useState("");
-  const [streaming, setStreaming]   = useState(false);
-  const [crisis, setCrisis]         = useState(false);
-  const [error, setError]           = useState<string | null>(null);
-  const endRef  = useRef<HTMLDivElement>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const [crisis, setCrisis] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showBreathing, setShowBreathing] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const todayEntry = getTodayEntry();
-  const moodLevel: MoodLevel  = (todayEntry?.mood  as MoodLevel)  ?? 3;
+  // Read today's entry once on mount rather than on every render — the
+  // entry doesn't change during a chat session, and calling localStorage
+  // synchronously during render is wasted work on each re-render.
+  const [todayEntry, setTodayEntry] = useState<ReturnType<typeof getTodayEntry>>(null);
+
+  useEffect(() => {
+    setTodayEntry(getTodayEntry());
+  }, []);
+
+  const moodLevel: MoodLevel = (todayEntry?.mood as MoodLevel) ?? 3;
   const stressLevel: StressLevel = (todayEntry?.stress as StressLevel) ?? 3;
 
   useEffect(() => {
@@ -49,6 +59,9 @@ export default function ChatView({ profile }: Props) {
     } else {
       setMessages(history);
     }
+    // Only re-run if the profile identity actually changes (e.g. user
+    // re-onboards) — not on every keystroke-driven render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile.name, profile.examType]);
 
   useEffect(() => {
@@ -121,18 +134,24 @@ export default function ChatView({ profile }: Props) {
         if (!reader) throw new Error("No stream");
         const decoder = new TextDecoder();
         let accumulated = "";
+        let buffer = "";
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split("\n");
+          // Decode incrementally and buffer partial lines — a chunk
+          // boundary can split a "data: {...}" line in two, which the
+          // previous implementation silently dropped (causing missing
+          // characters mid-stream).
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? ""; // keep last (possibly incomplete) line
 
           for (const line of lines) {
             if (!line.startsWith("data: ")) continue;
             const data = line.slice(6);
-            if (data === "[DONE]") break;
+            if (data === "[DONE]") continue;
             try {
               const parsed = JSON.parse(data);
               accumulated += parsed.content;
@@ -181,6 +200,7 @@ export default function ChatView({ profile }: Props) {
     };
     setMessages([welcome]);
     setCrisis(false);
+    setShowBreathing(false);
   };
 
   const lastIsStreaming =
@@ -201,20 +221,35 @@ export default function ChatView({ profile }: Props) {
             Powered by Groq · Ultra-fast AI companion
             {todayEntry && (
               <span className="ml-2">
-                Today's mood: {MOOD_EMOJI[moodLevel]}
+                Today&apos;s mood: {MOOD_EMOJI[moodLevel]}
               </span>
             )}
           </p>
         </div>
-        <button
-          onClick={handleClear}
-          className="p-2 rounded-xl transition-colors"
-          style={{ color: "var(--color-muted)" }}
-          title="Clear chat history"
-          aria-label="Clear chat history"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setShowBreathing((v) => !v)}
+            className="p-2 rounded-xl transition-colors"
+            style={{
+              color: showBreathing ? "var(--color-primary)" : "var(--color-muted)",
+              background: showBreathing ? "rgba(59, 100, 246, 0.1)" : "transparent",
+            }}
+            title={showBreathing ? "Hide breathing exercise" : "Start a breathing exercise"}
+            aria-label={showBreathing ? "Hide breathing exercise" : "Start a breathing exercise"}
+            aria-pressed={showBreathing}
+          >
+            <Wind className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleClear}
+            className="p-2 rounded-xl transition-colors"
+            style={{ color: "var(--color-muted)" }}
+            title="Clear chat history"
+            aria-label="Clear chat history"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -224,6 +259,23 @@ export default function ChatView({ profile }: Props) {
         aria-live="polite"
         aria-label="Chat messages"
       >
+        {/* On-demand adaptive breathing exercise — lets the student take a
+            guided mindfulness break mid-conversation without losing their
+            chat context. Picks a pattern based on today's logged stress. */}
+        {showBreathing && (
+          <div className="relative animate-fade-in">
+            <button
+              onClick={() => setShowBreathing(false)}
+              className="absolute top-3 right-3 p-1.5 rounded-lg z-10"
+              style={{ background: "var(--color-surface2)", color: "var(--color-muted)" }}
+              aria-label="Close breathing exercise"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+            <BreathingExercise stressLevel={stressLevel} compact />
+          </div>
+        )}
+
         {messages.map((msg, i) => (
           <MessageBubble
             key={i}
@@ -249,7 +301,7 @@ export default function ChatView({ profile }: Props) {
                   color: "var(--color-text)",
                 }}
               >
-                <span style={{ color: "var(--color-muted)" }}>"</span>{s}<span style={{ color: "var(--color-muted)" }}>"</span>
+                <span style={{ color: "var(--color-muted)" }}>&quot;</span>{s}<span style={{ color: "var(--color-muted)" }}>&quot;</span>
               </button>
             ))}
           </div>
@@ -353,6 +405,7 @@ function MessageBubble({
   isStreaming: boolean;
 }) {
   const isAI = msg.role === "assistant";
+  const lines = msg.content.split("\n");
 
   return (
     <div
@@ -387,10 +440,10 @@ function MessageBubble({
       >
         {msg.content ? (
           <span className={isStreaming ? "stream-cursor" : ""}>
-            {msg.content.split("\n").map((line, i) => (
+            {lines.map((line, i) => (
               <span key={i}>
                 {line}
-                {i < msg.content.split("\n").length - 1 && <br />}
+                {i < lines.length - 1 && <br />}
               </span>
             ))}
           </span>

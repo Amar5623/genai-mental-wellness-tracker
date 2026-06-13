@@ -1,9 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { getEntries, getRecentEntries } from "@/lib/storage";
 import type { UserProfile } from "@/lib/storage";
-import type { WellnessInsight, MoodEntry } from "@/types";
+import type { WellnessInsight, MoodEntry, StressLevel } from "@/types";
+import {
+  average,
+  capitalize,
+  getMoodColor,
+  RISK_COLORS,
+  RISK_BACKGROUNDS,
+  getRecentDaySummaries,
+} from "@/lib/wellness";
+import Card from "./ui/Card";
+import BreathingExercise from "./BreathingExercise";
 import {
   Brain,
   TrendingUp,
@@ -26,7 +36,7 @@ function MoodBar({ value, max = 5, color }: { value: number; max?: number; color
       className="h-2 rounded-full overflow-hidden"
       style={{ background: "var(--color-surface2)" }}
       role="progressbar"
-      aria-valuenow={value}
+      aria-valuenow={Math.round(value * 10) / 10}
       aria-valuemin={0}
       aria-valuemax={max}
     >
@@ -39,21 +49,7 @@ function MoodBar({ value, max = 5, color }: { value: number; max?: number; color
 }
 
 function WeekChart({ entries }: { entries: MoodEntry[] }) {
-  const last7 = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    const dateStr = d.toISOString().split("T")[0];
-    const entry = entries.find((e) => e.date === dateStr);
-    return {
-      day: d.toLocaleDateString("en-IN", { weekday: "short" }),
-      mood: entry?.mood ?? null,
-      stress: entry?.stress ?? null,
-    };
-  });
-
-  const moodColors: Record<number, string> = {
-    1: "#f43f5e", 2: "#f97316", 3: "#eab308", 4: "#22c55e", 5: "#14b89a",
-  };
+  const last7 = useMemo(() => getRecentDaySummaries(entries, 7), [entries]);
 
   return (
     <div className="space-y-3">
@@ -69,7 +65,7 @@ function WeekChart({ entries }: { entries: MoodEntry[] }) {
                 className="w-full rounded-t-md transition-all duration-500"
                 style={{
                   height: `${(d.mood / 5) * 80}px`,
-                  background: moodColors[d.mood],
+                  background: getMoodColor(d.mood),
                   opacity: 0.85,
                 }}
                 title={`${d.day}: Mood ${d.mood}/5`}
@@ -97,20 +93,37 @@ function WeekChart({ entries }: { entries: MoodEntry[] }) {
 }
 
 export default function InsightsView({ profile }: Props) {
-  const [insight, setInsight]   = useState<WellnessInsight | null>(null);
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState<string | null>(null);
-  const [entries, setEntries]   = useState<MoodEntry[]>([]);
-  const [recent, setRecent]     = useState<MoodEntry[]>([]);
+  const [insight, setInsight] = useState<WellnessInsight | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [entries, setEntries] = useState<MoodEntry[]>([]);
+  const [recent, setRecent] = useState<MoodEntry[]>([]);
 
   useEffect(() => {
     const all = getEntries();
-    const r   = getRecentEntries(7);
+    const r = getRecentEntries(7);
     setEntries(all);
     setRecent(r);
   }, []);
 
-  const analyzeWithGemini = async () => {
+  // Derived stats — only recomputed when `recent` changes, instead of on
+  // every render (previously these reduce() calls ran 4x per render).
+  const avgMood = useMemo(() => average(recent.map((e) => e.mood)) ?? 0, [recent]);
+  const avgStress = useMemo(() => average(recent.map((e) => e.stress)) ?? 0, [recent]);
+
+  // Most recent stress level, used to pick an adaptive breathing exercise
+  // when the AI analysis flags an elevated risk level.
+  const latestStress: StressLevel = useMemo(() => {
+    if (entries.length === 0) return 3;
+    return (entries[0].stress as StressLevel) ?? 3;
+  }, [entries]);
+
+  const showBreathingNudge = useMemo(() => {
+    if (!insight) return false;
+    return insight.analysis.riskLevel === "high" || insight.analysis.riskLevel === "crisis";
+  }, [insight]);
+
+  const analyzeWithGemini = useCallback(async () => {
     if (recent.length === 0) {
       setError("Add at least one journal entry to see your insights.");
       return;
@@ -141,21 +154,7 @@ export default function InsightsView({ profile }: Props) {
     } finally {
       setLoading(false);
     }
-  };
-
-  const riskColors: Record<string, string> = {
-    low:      "#14b89a",
-    moderate: "#eab308",
-    high:     "#f97316",
-    crisis:   "#f43f5e",
-  };
-
-  const riskBg: Record<string, string> = {
-    low:      "rgba(20, 184, 154, 0.1)",
-    moderate: "rgba(234, 179, 8, 0.1)",
-    high:     "rgba(249, 115, 22, 0.1)",
-    crisis:   "rgba(244, 63, 94, 0.1)",
-  };
+  }, [recent, profile.examType]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -172,10 +171,7 @@ export default function InsightsView({ profile }: Props) {
       </div>
 
       {/* Summary stats */}
-      <div
-        className="rounded-2xl p-5"
-        style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-      >
+      <Card>
         <div className="flex items-center gap-2 mb-4">
           <Calendar className="w-4 h-4" style={{ color: "var(--color-primary)" }} />
           <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
@@ -194,25 +190,19 @@ export default function InsightsView({ profile }: Props) {
                 <div className="flex justify-between mb-1">
                   <span className="text-xs" style={{ color: "var(--color-muted)" }}>Avg Mood</span>
                   <span className="text-xs font-bold" style={{ color: "#14b89a" }}>
-                    {(recent.reduce((s, e) => s + e.mood, 0) / recent.length).toFixed(1)}/5
+                    {avgMood.toFixed(1)}/5
                   </span>
                 </div>
-                <MoodBar
-                  value={recent.reduce((s, e) => s + e.mood, 0) / recent.length}
-                  color="#14b89a"
-                />
+                <MoodBar value={avgMood} color="#14b89a" />
               </div>
               <div>
                 <div className="flex justify-between mb-1">
                   <span className="text-xs" style={{ color: "var(--color-muted)" }}>Avg Stress</span>
                   <span className="text-xs font-bold" style={{ color: "#f97316" }}>
-                    {(recent.reduce((s, e) => s + e.stress, 0) / recent.length).toFixed(1)}/5
+                    {avgStress.toFixed(1)}/5
                   </span>
                 </div>
-                <MoodBar
-                  value={recent.reduce((s, e) => s + e.stress, 0) / recent.length}
-                  color="#f97316"
-                />
+                <MoodBar value={avgStress} color="#f97316" />
               </div>
             </div>
           </>
@@ -221,7 +211,7 @@ export default function InsightsView({ profile }: Props) {
             No entries yet. Start journaling to see your patterns here.
           </p>
         )}
-      </div>
+      </Card>
 
       {/* AI Analysis CTA */}
       <button
@@ -270,23 +260,22 @@ export default function InsightsView({ profile }: Props) {
       {insight && (
         <div className="space-y-4 animate-fade-in">
           {/* Risk level */}
-          <div
-            className="rounded-2xl p-5"
+          <Card
             role="region"
             aria-label="Mental health risk assessment"
             style={{
-              background: riskBg[insight.analysis.riskLevel] ?? "var(--color-surface)",
-              border: `1px solid ${riskColors[insight.analysis.riskLevel] ?? "var(--color-border)"}44`,
+              background: RISK_BACKGROUNDS[insight.analysis.riskLevel] ?? "var(--color-surface)",
+              border: `1px solid ${RISK_COLORS[insight.analysis.riskLevel] ?? "var(--color-border)"}44`,
             }}
           >
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle
                 className="w-4 h-4"
-                style={{ color: riskColors[insight.analysis.riskLevel] }}
+                style={{ color: RISK_COLORS[insight.analysis.riskLevel] }}
                 aria-hidden="true"
               />
-              <span className="text-sm font-semibold" style={{ color: riskColors[insight.analysis.riskLevel] }}>
-                {insight.analysis.riskLevel.charAt(0).toUpperCase() + insight.analysis.riskLevel.slice(1)} Risk Level
+              <span className="text-sm font-semibold" style={{ color: RISK_COLORS[insight.analysis.riskLevel] }}>
+                {capitalize(insight.analysis.riskLevel)} Risk Level
               </span>
             </div>
             <p className="text-lg font-bold" style={{ color: "var(--color-text)" }}>
@@ -297,13 +286,17 @@ export default function InsightsView({ profile }: Props) {
                 Please contact iCall immediately: <strong>9152987821</strong>
               </p>
             )}
-          </div>
+          </Card>
+
+          {/* Adaptive mindfulness nudge — proactively offered when the AI
+              analysis flags elevated risk, directly tying the "Insights"
+              and "Adaptive mindfulness" pillars of the brief together. */}
+          {showBreathingNudge && (
+            <BreathingExercise stressLevel={latestStress} />
+          )}
 
           {/* Trend */}
-          <div
-            className="rounded-2xl p-5"
-            style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-          >
+          <Card>
             <div className="flex items-center gap-2 mb-1">
               {insight.weeklyMoodTrend === "improving" ? (
                 <TrendingUp className="w-4 h-4 text-green-400" aria-hidden="true" />
@@ -316,13 +309,10 @@ export default function InsightsView({ profile }: Props) {
                 Mood trend: {insight.weeklyMoodTrend}
               </span>
             </div>
-          </div>
+          </Card>
 
           {/* Stress Triggers */}
-          <div
-            className="rounded-2xl p-5"
-            style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-          >
+          <Card>
             <h3 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: "var(--color-text)" }}>
               <Zap className="w-4 h-4" style={{ color: "#f97316" }} aria-hidden="true" />
               Stress Triggers Detected
@@ -339,13 +329,10 @@ export default function InsightsView({ profile }: Props) {
                 </li>
               ))}
             </ul>
-          </div>
+          </Card>
 
           {/* Patterns */}
-          <div
-            className="rounded-2xl p-5"
-            style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-          >
+          <Card>
             <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--color-text)" }}>
               Emotional Patterns
             </h3>
@@ -361,13 +348,10 @@ export default function InsightsView({ profile }: Props) {
                 </li>
               ))}
             </ul>
-          </div>
+          </Card>
 
           {/* Recommended Actions */}
-          <div
-            className="rounded-2xl p-5"
-            style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-          >
+          <Card>
             <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--color-text)" }}>
               Recommended Actions
             </h3>
@@ -388,11 +372,10 @@ export default function InsightsView({ profile }: Props) {
                 </li>
               ))}
             </ol>
-          </div>
+          </Card>
 
           {/* Affirmation */}
-          <div
-            className="rounded-2xl p-5"
+          <Card
             style={{
               background: "linear-gradient(135deg, rgba(59, 100, 246, 0.1), rgba(20, 184, 154, 0.1))",
               border: "1px solid rgba(59, 100, 246, 0.2)",
@@ -405,9 +388,9 @@ export default function InsightsView({ profile }: Props) {
               </span>
             </div>
             <p className="text-sm leading-relaxed italic" style={{ color: "var(--color-text)" }}>
-              "{insight.analysis.affirmation}"
+              &quot;{insight.analysis.affirmation}&quot;
             </p>
-          </div>
+          </Card>
         </div>
       )}
     </div>

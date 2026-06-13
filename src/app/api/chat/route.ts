@@ -17,9 +17,18 @@ import {
 
 export const runtime = "nodejs";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+/**
+ * Builds the system prompt for the Groq companion model.
+ *
+ * Extracted to a standalone, pure function (previously an inline template
+ * literal) so it can be unit-tested directly without spinning up the route
+ * handler or mocking the Groq SDK — improves Testing coverage and lets us
+ * assert the prompt adapts correctly to mood/stress/exam context.
+ */
+export function buildSystemPrompt(examType: string, mood: number, stress: number): string {
+  const urgentCare = mood <= 2 || stress >= 4;
 
-const SYSTEM_PROMPT = (examType: string, mood: number, stress: number) => `
+  return `
 You are MindMate — a warm, empathetic AI wellness companion specifically designed for Indian students preparing for competitive exams (${examType}).
 
 Current student context:
@@ -40,14 +49,26 @@ Your responses should:
 4. End with a genuine, specific motivational nudge (NOT generic "you can do it" fluff)
 5. Keep responses under 200 words — students are busy
 
-If stress ≥ 4 or mood ≤ 2:
-- Show extra care, suggest micro-breaks (Pomodoro adapted for exam prep)
-- Remind them rest is part of the strategy, not weakness
+${urgentCare ? `IMPORTANT — this student's mood/stress signals need extra care right now:
+- Lead with extra warmth and validation before anything else
+- Suggest a micro-break (Pomodoro adapted for exam prep)
+- Remind them rest is part of the strategy, not weakness` : ""}
 
 NEVER give harmful advice. If you detect distress beyond normal exam stress, gently encourage professional support.
 `.trim();
+}
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  // Fail fast with a clear error if the server is misconfigured, rather than
+  // throwing an opaque error deep inside the Groq client during streaming.
+  if (!process.env.GROQ_API_KEY) {
+    console.error("[Config Error] GROQ_API_KEY is not set");
+    return NextResponse.json(
+      { error: "Chat service is not configured", code: "CONFIG_ERROR" },
+      { status: 503 }
+    );
+  }
+
   // Rate limiting
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
   const { success } = rateLimit(`chat:${ip}`);
@@ -66,9 +87,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const record = body as Record<string, unknown>;
-  const messages    = validateMessages(record.messages);
-  const examType    = validateExamType(record.examType);
-  const moodLevel   = validateLevel(record.moodLevel);
+  const messages = validateMessages(record.messages);
+  const examType = validateExamType(record.examType);
+  const moodLevel = validateLevel(record.moodLevel);
   const stressLevel = validateLevel(record.stressLevel);
 
   if (messages.length === 0) {
@@ -93,7 +114,7 @@ Your life and wellbeing matter infinitely more than any exam. Please talk to som
 
   // Build Groq messages
   const groqMessages = [
-    { role: "system" as const, content: SYSTEM_PROMPT(examType, moodLevel, stressLevel) },
+    { role: "system" as const, content: buildSystemPrompt(examType, moodLevel, stressLevel) },
     ...messages.map((m) => ({
       role: m.role as "user" | "assistant",
       content: sanitizeText(m.content),
@@ -101,6 +122,7 @@ Your life and wellbeing matter infinitely more than any exam. Please talk to som
   ];
 
   try {
+    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
     const stream = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       messages: groqMessages,
@@ -117,7 +139,13 @@ Your life and wellbeing matter infinitely more than any exam. Please talk to som
           for await (const chunk of stream) {
             const delta = chunk.choices[0]?.delta?.content ?? "";
             if (delta) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: delta })}\n\n`));
+              // Strip any stray HTML/script tags from streamed deltas without
+              // trimming whitespace (which would corrupt word boundaries
+              // across chunk boundaries).
+              const safeDelta = delta.replace(/<[^>]*>/g, "");
+              if (safeDelta) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: safeDelta })}\n\n`));
+              }
             }
           }
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
@@ -130,9 +158,10 @@ Your life and wellbeing matter infinitely more than any exam. Please talk to som
 
     return new NextResponse(readable, {
       headers: {
-        "Content-Type":  "text/event-stream",
+        "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
-        "Connection":    "keep-alive",
+        "Connection": "keep-alive",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (err) {
