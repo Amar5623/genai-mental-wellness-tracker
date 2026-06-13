@@ -1,5 +1,31 @@
 import type { Metadata, Viewport } from "next";
+import { Plus_Jakarta_Sans, DM_Serif_Display } from "next/font/google";
 import "./globals.css";
+
+/**
+ * Fonts are loaded via `next/font/google` instead of a CSS `@import` +
+ * manual `<link>` tags. Previously both were present, causing the same
+ * font family to be fetched twice and blocking render on an external
+ * request to fonts.googleapis.com. `next/font` self-hosts the font files
+ * at build time (zero extra network requests, no layout shift) and exposes
+ * them as CSS variables that match the existing `--font-body` /
+ * `--font-display` usage in globals.css and tailwind.config.ts.
+ */
+const bodyFont = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700", "800"],
+  style: ["normal", "italic"],
+  variable: "--font-body",
+  display: "swap",
+});
+
+const displayFont = DM_Serif_Display({
+  subsets: ["latin"],
+  weight: ["400"],
+  style: ["normal", "italic"],
+  variable: "--font-display",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "MindMate — Your AI Wellness Companion for Exam Warriors",
@@ -38,19 +64,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=DM+Serif+Display:ital@0;1&display=swap"
-          rel="stylesheet"
-        />
-      </head>
+    <html lang="en" className={`${bodyFont.variable} ${displayFont.variable}`}>
       <body>
         {/* Accessibility: skip to main content */}
         <a href="#main-content" className="skip-link">

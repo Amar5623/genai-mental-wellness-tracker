@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { getTodayEntry, saveEntry } from "@/lib/storage";
 import type { UserProfile } from "@/lib/storage";
 import type { MoodEntry, MoodLevel, StressLevel, ExamType } from "@/types";
 import { MOOD_EMOJI, MOOD_LABELS, STRESS_LABELS } from "@/types";
+import { getMoodColor, getStressColor } from "@/lib/wellness";
 import { Save, Check, Tag, X } from "lucide-react";
+import Card from "./ui/Card";
 
 interface Props {
   profile: UserProfile;
@@ -17,16 +19,28 @@ const COMMON_TAGS = [
   "syllabus overwhelm", "revision", "new topic", "revision done",
 ];
 
-export default function JournalView({ profile }: Props) {
-  const today = new Date().toISOString().split("T")[0];
+const PROMPTS = [
+  "What's weighing on my mind the most today?",
+  "One thing I'm proud of from my study session today…",
+  "My biggest fear about the exam right now is…",
+  "What would I tell my future self about today?",
+  "The moment today when I felt most like myself was…",
+];
 
-  const [mood, setMood]       = useState<MoodLevel>(3);
-  const [stress, setStress]   = useState<StressLevel>(3);
-  const [text, setText]       = useState("");
-  const [tags, setTags]       = useState<string[]>([]);
+export default function JournalView({ profile }: Props) {
+  const today = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const todayLabel = useMemo(
+    () => new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" }),
+    []
+  );
+  const [activePrompt] = useState(() => PROMPTS[Math.floor(Math.random() * PROMPTS.length)]);
+
+  const [mood, setMood] = useState<MoodLevel>(3);
+  const [stress, setStress] = useState<StressLevel>(3);
+  const [text, setText] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [customTag, setCustomTag] = useState("");
-  const [saved, setSaved]     = useState(false);
-  const [charCount, setCharCount] = useState(0);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     const entry = getTodayEntry();
@@ -38,10 +52,12 @@ export default function JournalView({ profile }: Props) {
     }
   }, []);
 
+  const charCount = text.length;
+  const customTags = useMemo(() => tags.filter((t) => !COMMON_TAGS.includes(t)), [tags]);
+
   const handleTextChange = (val: string) => {
     if (val.length > 1500) return;
     setText(val);
-    setCharCount(val.length);
   };
 
   const toggleTag = (tag: string) => {
@@ -60,34 +76,19 @@ export default function JournalView({ profile }: Props) {
 
   const handleSave = () => {
     const entry: MoodEntry = {
-      id:          today,
-      date:        today,
+      id: today,
+      date: today,
       mood,
       stress,
       journalText: text.trim(),
-      examType:    profile.examType as ExamType,
+      examType: profile.examType as ExamType,
       tags,
-      createdAt:   new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     };
     saveEntry(entry);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
-
-  const getMoodColor = (level: number): string => {
-    const colors = ["", "#f43f5e", "#f97316", "#eab308", "#22c55e", "#14b89a"];
-    return colors[level] ?? "#6b7280";
-  };
-
-  const prompts = [
-    "What's weighing on my mind the most today?",
-    "One thing I'm proud of from my study session today…",
-    "My biggest fear about the exam right now is…",
-    "What would I tell my future self about today?",
-    "The moment today when I felt most like myself was…",
-  ];
-
-  const [activePrompt] = useState(prompts[Math.floor(Math.random() * prompts.length)]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -99,15 +100,12 @@ export default function JournalView({ profile }: Props) {
           Daily Journal
         </h1>
         <p className="text-sm mt-1" style={{ color: "var(--color-muted)" }}>
-          {new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+          {todayLabel}
         </p>
       </div>
 
       {/* Mood selector */}
-      <div
-        className="rounded-2xl p-5"
-        style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-      >
+      <Card>
         <label className="block text-sm font-semibold mb-4" style={{ color: "var(--color-text)" }}>
           How are you feeling right now?
         </label>
@@ -118,8 +116,7 @@ export default function JournalView({ profile }: Props) {
               onClick={() => setMood(level)}
               className="flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-200"
               style={{
-                background:
-                  mood === level ? `${getMoodColor(level)}22` : "transparent",
+                background: mood === level ? `${getMoodColor(level)}22` : "transparent",
                 border: `2px solid ${mood === level ? getMoodColor(level) : "transparent"}`,
                 transform: mood === level ? "scale(1.15)" : "scale(1)",
               }}
@@ -133,13 +130,10 @@ export default function JournalView({ profile }: Props) {
             </button>
           ))}
         </div>
-      </div>
+      </Card>
 
       {/* Stress slider */}
-      <div
-        className="rounded-2xl p-5"
-        style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-      >
+      <Card>
         <div className="flex items-center justify-between mb-3">
           <label className="text-sm font-semibold" style={{ color: "var(--color-text)" }} htmlFor="stress-slider">
             Stress level
@@ -147,8 +141,8 @@ export default function JournalView({ profile }: Props) {
           <span
             className="text-sm font-bold px-3 py-1 rounded-full"
             style={{
-              background: `${getMoodColor(6 - stress)}22`,
-              color: getMoodColor(6 - stress),
+              background: `${getStressColor(stress)}22`,
+              color: getStressColor(stress),
             }}
           >
             {stress}/5 — {STRESS_LABELS[stress]}
@@ -162,9 +156,7 @@ export default function JournalView({ profile }: Props) {
           value={stress}
           onChange={(e) => setStress(Number(e.target.value) as StressLevel)}
           className="w-full"
-          style={{
-            accentColor: getMoodColor(6 - stress),
-          }}
+          style={{ accentColor: getStressColor(stress) }}
           aria-valuemin={1}
           aria-valuemax={5}
           aria-valuenow={stress}
@@ -174,13 +166,10 @@ export default function JournalView({ profile }: Props) {
           <span className="text-xs" style={{ color: "var(--color-muted)" }}>Minimal</span>
           <span className="text-xs" style={{ color: "var(--color-muted)" }}>Overwhelming</span>
         </div>
-      </div>
+      </Card>
 
       {/* Journal text */}
-      <div
-        className="rounded-2xl p-5"
-        style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-      >
+      <Card>
         <div className="flex items-center justify-between mb-3">
           <label className="text-sm font-semibold" style={{ color: "var(--color-text)" }} htmlFor="journal-text">
             Journal entry
@@ -224,13 +213,10 @@ export default function JournalView({ profile }: Props) {
           aria-label="Journal entry text"
           aria-multiline="true"
         />
-      </div>
+      </Card>
 
       {/* Tags */}
-      <div
-        className="rounded-2xl p-5"
-        style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-      >
+      <Card>
         <label className="block text-sm font-semibold mb-3" style={{ color: "var(--color-text)" }}>
           <Tag className="w-4 h-4 inline mr-1" aria-hidden="true" />
           What shaped today?
@@ -282,32 +268,27 @@ export default function JournalView({ profile }: Props) {
         </div>
 
         {/* Selected custom tags */}
-        {tags.filter((t) => !COMMON_TAGS.includes(t)).length > 0 && (
+        {customTags.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-2">
-            {tags
-              .filter((t) => !COMMON_TAGS.includes(t))
-              .map((tag) => (
-                <span
-                  key={tag}
-                  className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-full"
-                  style={{
-                    background: "rgba(20, 184, 154, 0.15)",
-                    border: "1px solid rgba(20, 184, 154, 0.3)",
-                    color: "#5ee9cb",
-                  }}
-                >
-                  {tag}
-                  <button
-                    onClick={() => toggleTag(tag)}
-                    aria-label={`Remove tag ${tag}`}
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              ))}
+            {customTags.map((tag) => (
+              <span
+                key={tag}
+                className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-full"
+                style={{
+                  background: "rgba(20, 184, 154, 0.15)",
+                  border: "1px solid rgba(20, 184, 154, 0.3)",
+                  color: "#5ee9cb",
+                }}
+              >
+                {tag}
+                <button onClick={() => toggleTag(tag)} aria-label={`Remove tag ${tag}`}>
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
           </div>
         )}
-      </div>
+      </Card>
 
       {/* Save button */}
       <button

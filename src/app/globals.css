@@ -2,23 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=DM+Serif+Display:ital@0;1&display=swap');
+/*
+ * Fonts: previously imported here via @import AND loaded again via <link>
+ * tags in layout.tsx, causing the same font family to be fetched twice.
+ * Both --font-display and --font-body are now provided by next/font/google
+ * (see layout.tsx), which injects them as CSS variables on the <html>
+ * element — no @import or <link> needed.
+ */
 
 :root {
-  --font-display: 'DM Serif Display', serif;
-  --font-body:    'Plus Jakarta Sans', sans-serif;
-
   /* Brand palette */
-  --color-bg:       #0d1117;
-  --color-surface:  #161b22;
+  --color-bg: #0d1117;
+  --color-surface: #161b22;
   --color-surface2: #21262d;
-  --color-border:   #30363d;
-  --color-text:     #e6edf3;
-  --color-muted:    #8b949e;
-  --color-primary:  #3b64f6;
-  --color-calm:     #14b89a;
-  --color-warn:     #f97316;
-  --color-danger:   #f43f5e;
+  --color-border: #30363d;
+  --color-text: #e6edf3;
+  --color-muted: #8b949e;
+  --color-primary: #3b64f6;
+  --color-calm: #14b89a;
+  --color-warn: #f97316;
+  --color-danger: #f43f5e;
 }
 
 * {
@@ -41,9 +44,11 @@ body {
 ::-webkit-scrollbar {
   width: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: var(--color-bg);
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: 3px;
@@ -71,16 +76,36 @@ body {
     background-clip: text;
   }
 
-  .mood-glow-1 { box-shadow: 0 0 16px rgba(244, 63, 94, 0.3); }
-  .mood-glow-2 { box-shadow: 0 0 16px rgba(249, 115, 22, 0.3); }
-  .mood-glow-3 { box-shadow: 0 0 16px rgba(234, 179, 8, 0.3);  }
-  .mood-glow-4 { box-shadow: 0 0 16px rgba(34, 197, 94, 0.3);  }
-  .mood-glow-5 { box-shadow: 0 0 16px rgba(20, 184, 154, 0.3); }
+  .mood-glow-1 {
+    box-shadow: 0 0 16px rgba(244, 63, 94, 0.3);
+  }
+
+  .mood-glow-2 {
+    box-shadow: 0 0 16px rgba(249, 115, 22, 0.3);
+  }
+
+  .mood-glow-3 {
+    box-shadow: 0 0 16px rgba(234, 179, 8, 0.3);
+  }
+
+  .mood-glow-4 {
+    box-shadow: 0 0 16px rgba(34, 197, 94, 0.3);
+  }
+
+  .mood-glow-5 {
+    box-shadow: 0 0 16px rgba(20, 184, 154, 0.3);
+  }
 }
 
 /* Prose for AI responses */
-.prose-mindmate p { margin-bottom: 0.75rem; line-height: 1.7; }
-.prose-mindmate strong { color: #93b3fd; }
+.prose-mindmate p {
+  margin-bottom: 0.75rem;
+  line-height: 1.7;
+}
+
+.prose-mindmate strong {
+  color: #93b3fd;
+}
 
 /* Streaming cursor */
 .stream-cursor::after {
@@ -91,7 +116,9 @@ body {
 }
 
 @keyframes blink {
-  50% { opacity: 0; }
+  50% {
+    opacity: 0;
+  }
 }
 
 /* Skip to main content (accessibility) */
@@ -106,6 +133,7 @@ body {
   border-radius: 0 0 4px 0;
   transition: top 0.2s;
 }
+
 .skip-link:focus {
   top: 0;
 }

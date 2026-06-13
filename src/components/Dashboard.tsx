@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import {
   getEntries,
   getStreakDays,
@@ -8,9 +8,20 @@ import {
   getRecentEntries,
 } from "@/lib/storage";
 import type { UserProfile } from "@/lib/storage";
-import type { MoodEntry } from "@/types";
+import type { MoodEntry, StressLevel } from "@/types";
 import { MOOD_EMOJI } from "@/types";
+import {
+  average,
+  computeMoodTrend,
+  daysUntilExam,
+  getGreeting,
+  getHeatmapDays,
+  getMoodColor,
+  getStressColor,
+} from "@/lib/wellness";
 import type { ActiveView } from "./MindMateApp";
+import Card from "./ui/Card";
+import BreathingExercise from "./BreathingExercise";
 import {
   Flame,
   BookOpen,
@@ -27,64 +38,34 @@ interface Props {
   onNavigate: (v: ActiveView) => void;
 }
 
-function getMoodColor(mood: number): string {
-  const colors = ["", "#f43f5e", "#f97316", "#eab308", "#22c55e", "#14b89a"];
-  return colors[mood] ?? "#6b7280";
-}
-
-function getGreeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
-  return "Good evening";
-}
-
-function daysUntilExam(dateStr: string): number | null {
-  if (!dateStr) return null;
-  const exam = new Date(dateStr);
-  const today = new Date();
-  const diff = Math.ceil((exam.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-  return diff > 0 ? diff : null;
-}
+const HEATMAP_DAYS = 28;
+const RECENT_DAYS = 7;
 
 export default function Dashboard({ profile, onNavigate }: Props) {
-  const [entries, setEntries]     = useState<MoodEntry[]>([]);
-  const [streak, setStreak]       = useState(0);
+  const [entries, setEntries] = useState<MoodEntry[]>([]);
+  const [streak, setStreak] = useState(0);
   const [todayEntry, setTodayEntry] = useState<MoodEntry | null>(null);
-  const [recent, setRecent]       = useState<MoodEntry[]>([]);
+  const [recent, setRecent] = useState<MoodEntry[]>([]);
 
   useEffect(() => {
     setEntries(getEntries());
     setStreak(getStreakDays());
     setTodayEntry(getTodayEntry());
-    setRecent(getRecentEntries(7));
+    setRecent(getRecentEntries(RECENT_DAYS));
   }, []);
 
-  const daysLeft = daysUntilExam(profile.examDate);
-  const avgMood  = recent.length
-    ? recent.reduce((s, e) => s + e.mood, 0) / recent.length
-    : null;
-  const avgStress = recent.length
-    ? recent.reduce((s, e) => s + e.stress, 0) / recent.length
-    : null;
+  // Derived stats — recomputed only when their inputs actually change,
+  // avoiding repeated array reduces on every render (and avoiding the
+  // previous pattern of computing the same average 2-3 times in JSX).
+  const avgMood = useMemo(() => average(recent.map((e) => e.mood)), [recent]);
+  const avgStress = useMemo(() => average(recent.map((e) => e.stress)), [recent]);
+  const trend = useMemo(() => computeMoodTrend(recent), [recent]);
+  const daysLeft = useMemo(() => daysUntilExam(profile.examDate), [profile.examDate]);
+  const heatmapDays = useMemo(() => getHeatmapDays(entries, HEATMAP_DAYS), [entries]);
+  const greeting = useMemo(() => getGreeting(), []);
 
-  const trend: "up" | "down" | "stable" =
-    recent.length < 2
-      ? "stable"
-      : recent[0].mood > recent[recent.length - 1].mood
-      ? "up"
-      : recent[0].mood < recent[recent.length - 1].mood
-      ? "down"
-      : "stable";
-
-  // Last 28 days for heatmap
-  const heatmapDays = Array.from({ length: 28 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (27 - i));
-    const dateStr = d.toISOString().split("T")[0];
-    const entry = entries.find((e) => e.date === dateStr);
-    return { dateStr, entry };
-  });
+  const highStress = avgStress !== null && avgStress >= 4;
+  const stressLevelForExercise: StressLevel = (todayEntry?.stress as StressLevel) ?? 3;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -94,7 +75,7 @@ export default function Dashboard({ profile, onNavigate }: Props) {
           className="text-2xl font-bold"
           style={{ fontFamily: "var(--font-display)", color: "var(--color-text)" }}
         >
-          {getGreeting()}, {profile.name}
+          {greeting}, {profile.name}
         </h1>
         <p className="text-sm mt-1" style={{ color: "var(--color-muted)" }}>
           {todayEntry
@@ -120,11 +101,7 @@ export default function Dashboard({ profile, onNavigate }: Props) {
               {daysLeft} <span className="text-base font-normal" style={{ color: "var(--color-muted)" }}>days to go</span>
             </p>
           </div>
-          <div
-            className="text-4xl"
-            role="img"
-            aria-label="Hourglass"
-          >
+          <div className="text-4xl" role="img" aria-label="Hourglass">
             ⏳
           </div>
         </div>
@@ -141,33 +118,22 @@ export default function Dashboard({ profile, onNavigate }: Props) {
         />
         <StatCard
           label="7-day Mood"
-          value={avgMood ? avgMood.toFixed(1) : "—"}
+          value={avgMood !== null ? avgMood.toFixed(1) : "—"}
           sub="out of 5"
           Icon={trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : Minus}
           color={trend === "up" ? "#14b89a" : trend === "down" ? "#f43f5e" : "#6b7280"}
         />
         <StatCard
           label="Avg Stress"
-          value={avgStress ? avgStress.toFixed(1) : "—"}
+          value={avgStress !== null ? avgStress.toFixed(1) : "—"}
           sub="out of 5"
           Icon={AlertTriangle}
-          color={
-            avgStress
-              ? avgStress >= 4
-                ? "#f43f5e"
-                : avgStress >= 3
-                ? "#f97316"
-                : "#14b89a"
-              : "#6b7280"
-          }
+          color={avgStress !== null ? getStressColor(Math.round(avgStress)) : "#6b7280"}
         />
       </div>
 
       {/* Mood heatmap */}
-      <div
-        className="rounded-2xl p-5"
-        style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-      >
+      <Card>
         <h2 className="text-sm font-semibold mb-4" style={{ color: "var(--color-text)" }}>
           28-Day Mood Map
         </h2>
@@ -182,22 +148,12 @@ export default function Dashboard({ profile, onNavigate }: Props) {
               key={dateStr}
               className="aspect-square rounded-md transition-transform hover:scale-110"
               style={{
-                background: entry
-                  ? getMoodColor(entry.mood)
-                  : "var(--color-surface2)",
+                background: entry ? getMoodColor(entry.mood) : "var(--color-surface2)",
                 opacity: entry ? 1 : 0.4,
               }}
               role="gridcell"
-              title={
-                entry
-                  ? `${dateStr}: Mood ${entry.mood}/5`
-                  : `${dateStr}: No entry`
-              }
-              aria-label={
-                entry
-                  ? `${dateStr}: Mood ${entry.mood} out of 5`
-                  : `${dateStr}: No entry`
-              }
+              title={entry ? `${dateStr}: Mood ${entry.mood}/5` : `${dateStr}: No entry`}
+              aria-label={entry ? `${dateStr}: Mood ${entry.mood} out of 5` : `${dateStr}: No entry`}
             />
           ))}
         </div>
@@ -205,15 +161,12 @@ export default function Dashboard({ profile, onNavigate }: Props) {
           <span className="text-xs" style={{ color: "var(--color-muted)" }}>Mood scale:</span>
           {[1, 2, 3, 4, 5].map((m) => (
             <span key={m} className="flex items-center gap-1 text-xs" style={{ color: "var(--color-muted)" }}>
-              <span
-                className="inline-block w-3 h-3 rounded-sm"
-                style={{ background: getMoodColor(m) }}
-              />
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ background: getMoodColor(m) }} />
               {m}
             </span>
           ))}
         </div>
-      </div>
+      </Card>
 
       {/* Quick actions */}
       <div className="grid grid-cols-2 gap-3">
@@ -241,8 +194,11 @@ export default function Dashboard({ profile, onNavigate }: Props) {
         />
       </div>
 
+      {/* Adaptive mindfulness nudge — shown proactively when recent stress is high */}
+      {highStress && <BreathingExercise stressLevel={stressLevelForExercise} />}
+
       {/* Crisis banner when high stress */}
-      {avgStress !== null && avgStress >= 4 && (
+      {highStress && (
         <div
           className="rounded-2xl p-4"
           role="alert"
@@ -269,24 +225,17 @@ export default function Dashboard({ profile, onNavigate }: Props) {
   );
 }
 
-function StatCard({
-  label,
-  value,
-  sub,
-  Icon,
-  color,
-}: {
+interface StatCardProps {
   label: string;
   value: string;
   sub: string;
   Icon: React.ElementType;
   color: string;
-}) {
+}
+
+const StatCard = memo(function StatCard({ label, value, sub, Icon, color }: StatCardProps) {
   return (
-    <div
-      className="rounded-2xl p-4"
-      style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-    >
+    <Card className="p-4">
       <Icon className="w-4 h-4 mb-2" style={{ color }} aria-hidden="true" />
       <div className="text-2xl font-bold" style={{ color: "var(--color-text)" }}>
         {value}
@@ -297,25 +246,20 @@ function StatCard({
       <div className="text-xs" style={{ color }}>
         {sub}
       </div>
-    </div>
+    </Card>
   );
-}
+});
 
-function QuickAction({
-  label,
-  sub,
-  Icon,
-  color,
-  onClick,
-  className = "",
-}: {
+interface QuickActionProps {
   label: string;
   sub: string;
   Icon: React.ElementType;
   color: string;
   onClick: () => void;
   className?: string;
-}) {
+}
+
+const QuickAction = memo(function QuickAction({ label, sub, Icon, color, onClick, className = "" }: QuickActionProps) {
   return (
     <button
       onClick={onClick}
@@ -339,4 +283,4 @@ function QuickAction({
       </div>
     </button>
   );
-}
+});
