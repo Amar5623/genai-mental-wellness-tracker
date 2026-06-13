@@ -31,10 +31,25 @@ export function rateLimit(identifier: string): { success: boolean; remaining: nu
   return { success: true, remaining: MAX_REQUESTS - entry.count };
 }
 
-// Clean up stale entries every 5 minutes
+/**
+ * Returns current store size — useful for health checks / tests.
+ */
+export function getRateLimitStoreSize(): number {
+  return store.size;
+}
+
+/**
+ * Clear a specific identifier — useful for testing.
+ */
+export function clearRateLimit(identifier: string): void {
+  store.delete(identifier);
+}
+
+// Clean up stale entries every 5 minutes.
+// Use Array.from() for compatibility across all TypeScript targets.
 setInterval(() => {
   const now = Date.now();
-  for (const [key, entry] of store.entries()) {
+  Array.from(store.entries()).forEach(([key, entry]) => {
     if (now > entry.resetAt) store.delete(key);
-  }
+  });
 }, 300_000);
